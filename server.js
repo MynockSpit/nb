@@ -292,15 +292,13 @@ function viewDashboardPage(ctx, dashboardName) {
     })
   })
 
-  return `<div style="font-size: 17px; padding: 20px; font-family: Arial, sans-serif;">
-      ${dashboard.template.map(section => {
+  return dashboard.template.map(section => {
     if (section.type === 'table') return viewTable(section.data, variables)
     else {
       console.log('nope', section)
       return JSON.stringify(section)
     }
-  }).join('')}
-    </div>`
+  }).join('')
 }
 
 function viewTable(data, variables) {
