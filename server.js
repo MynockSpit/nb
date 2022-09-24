@@ -26,26 +26,65 @@ function sanitizeHtml(input) {
   return input.replace(/</g, '&#60;').replace(/>/g, '&#62;')
 }
 
-function renderBasePage(contents = '') {
-  return `<head><meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, shrink-to-fit=yes"></head>`
-    + `<body style="font-size: 13px; margin: 0px;">`
-    + contents
-    + `</body>`
-} 
+function renderBasePage(contentsOrFn = '') {
+  function render() {
+    try {
+      let contents
+      if (typeof contentsOrFn === 'function') {
+        contents = contentsOrFn()
+      } else {
+        contents = contentsOrFn
+      }
+      return contents
+    } catch (e) {
+      console.error(e)
+      return `<pre style="white-space: pre-wrap; word-break: break-word;">${e}</pre>`
+    }
+  }
+  return `
+  <head>
+    <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, shrink-to-fit=yes">
+    <style>
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: black;
+          color: white;
+          background: rgb(35,35,35);
+          color: rgb(218, 218, 218);
+        }
+        a {
+          color: rgb(36, 190, 92);
+        }
+        input, textarea {
+          font-family: inherit; 
+          font-size: inherit; 
+          background: inherit; 
+          color: inherit;
+        }
+        button {
+          background: inherit;
+          color: inherit;
+          border: 1px solid grey;
+          border-radius: 4px;
+          padding: 4px 10px;
+          font-size: inherit;
+          cursor: pointer;
+        }
+      }
+    </style>
+  </head>
+  <body style="margin: 20px; font-size: 16px; font-family: Arial, Helvetica, sans-serif;">
+    ${render()}
+  </body>`
+}
 
 function renderCommandPage(ctx, commandString) {
   return renderBasePage(
-    '<div style="position: sticky; background: white; top: 0px; padding: 1.3em 10px 0px 10px;">'
-    + commandForm(`> nb.js `, commandString)
-    + '<hr style="border: 0; border-top: 0.5px solid gray; margin: 1.5em 0px;"/>'
-    + `</div>`
-    + `<pre id="output" style="margin: 10px; white-space: pre-wrap; word-break: break-word;">${formatCommandOutput(ctx, commandString, sanitizeHtml(runCommand(commandString)))}</pre>`
-  )
-}
-
-function renderStaticPage(ctx, commandString) {
-  return renderBasePage(
-    `<pre id="output" style="margin: 10px; white-space: pre-wrap; word-break: break-word;">${sanitizeHtml(runCommand(commandString))}</pre>`
+    `<div style="position: sticky; background: inherit; top: 0px; padding: 1.5em 20px 0px 20px; font-size: 14px;">
+      ${commandForm(`> nb.js `, commandString)}
+      <hr style="border: 0; border-top: 0.5px solid gray; margin: 1.5em 0px;"/>
+    </div>
+    <pre id="output" style="white-space: pre-wrap; word-break: break-word; font-size: 14px;">${formatCommandOutput(ctx, commandString, sanitizeHtml(runCommand(commandString)))}</pre>`
   )
 }
 
@@ -63,7 +102,10 @@ function commandForm(prefix, defaultValue) {
     document.querySelector('#command-input').value = command
     onInput(command)
 
-    let text = await (await fetch(`/nb/${encodeURIComponent(command)}`, { method: 'POST' })).text()
+    let text = await (await fetch(`/nb/${encodeURIComponent(command)}`, {
+      method: 'POST',
+      headers: { "record-command": true }
+    })).text()
     outputElement.innerHTML = formatCommandOutput({}, command, text) + '\n\n' + outputElement.innerHTML
   }
 
@@ -76,7 +118,6 @@ function commandForm(prefix, defaultValue) {
 
   function addListeners() {
     window.addEventListener('keydown', (event) => {
-      console.log(event)
       if (
         event.key.match(/^[a-zA-Z0-9]$/)
         && event.altKey === false
@@ -89,10 +130,10 @@ function commandForm(prefix, defaultValue) {
     })
   }
 
-  let formStyle = `style="white-space: normal; font-family: monospace;" `
+  let formStyle = `style="white-space: normal; font-family: monospace; margin: -20px -20px 0px -20px;" `
   let spanStyle = `style="white-space: pre;" `
   let wrapperStyle = `style="position: relative; display: inline-block;" `
-  let inputStyle = `style="position: absolute; width: 100%; left: 0; border: 0; padding: 0; margin: 0; font-family: inherit; font-size: inherit; text-align: center;" `
+  let inputStyle = `style="position: absolute; width: 100%; left: 0; border: 0; padding: 0; margin: 0; text-align: center;" `
 
   return `${injectScripts(onInput, doCommand, onFocus, `(${addListeners.toString()}())`, formatCommandOutput, sanitizeHtml)}
   <form ${formStyle} onsubmit="doCommand(event)">
@@ -148,19 +189,23 @@ function formatCommandOutput(ctx, commandString, input) {
   return `> nb.js ${sanitizeHtml(commandString)}    ${makeLink(commandString, '(repeat)', false)}\n\n` + lines.join("\n")
 }
 
-function runCommand(commandString) {
+function runCommand(commandString, shouldThrow = false) {
   let command = `${nb} ${commandString.split(/\s/)
     // best effort safety -- wrap all args in single quotes
     .map(part => `'${part.replace(/'/g, "'\\''")}'`).join(' ')}`
+  console.log(`\n---\n> received: ${commandString}\n> running: ${command}\n`)
   let output
   try {
     output = execSync(command, { encoding: 'utf8' })
+    console.log(output)
+    console.log(`> command succeeded\n---\n`)
   } catch (e) {
     output = e.stdout + e.stderr
+    console.log(`\n> command failed\n---\n`)
+    if (shouldThrow) {
+      throw output
+    }
   }
-
-  console.log(`> ${command}`)
-  console.log(output)
 
   return output
 }
@@ -168,50 +213,78 @@ function runCommand(commandString) {
 function getCommand(ctx) {
   let commandString = ctx.params.command
 
-  let routes = db.get('recent') || {}
-  if (!routes[commandString]) routes[commandString] = 0
-  Object.keys(routes).forEach(key => {
-    if (key !== commandString) {
-      routes[key]--;
-      if (routes[key] < 0) delete routes[key]
-    }
-  })
-  routes[commandString] += 4;
-  db.put('recent', routes)
+  let referer = ctx.headers.referer
+  let afterTheFactCommand = ctx.headers["record-command"]
+  let rootReferer
+
+  if (referer) {
+    rootReferer = new URL(referer).pathname === '/'
+  }
+
+  console.log({ afterTheFactCommand, referer, rootReferer})
+
+  if (afterTheFactCommand || !referer || rootReferer) {
+    let routes = db.get('recent') || {}
+    if (!routes[commandString]) routes[commandString] = 0
+    Object.keys(routes).forEach(key => {
+      if (key !== commandString) {
+        routes[key]--;
+        if (routes[key] < -20) delete routes[key]
+      }
+    })
+    if (routes[commandString] < 0) routes[commandString] = 0
+    routes[commandString] += 5;
+    db.put('recent', routes)
+  }
 
   return commandString
 }
 
-function listDashboardsPage() {
+function dashboardsList() {
   let dashboards = (db.get('dashboards') || {})
 
-  return renderBasePage(
-    `<a href="/dashboard/edit">add</a>` +
+  return `dashboards (<a href="/dashboards/add">add new</a>)` +
     Object.keys(dashboards).map(dashboardName => {
-      return `<br /><a href="/dashboard/${dashboardName}">${dashboardName}</a>`
+      return `<br />- <a href="/dashboards/${dashboardName}">${dashboardName}</a>  (<a href="/dashboards/${dashboardName}/edit">edit</a>) (<a href="/dashboards/${dashboardName}/delete" onClick="confirm('Are you sure you want to delete ${dashboardName}?') || event.preventDefault()">delete</a>)`
     }).join('')
-  )
 }
 
 function viewDashboardPage(ctx, dashboardName) {
   let dashboard = (db.get('dashboards') || {})[dashboardName]
 
   if (!dashboard) {
-    return renderBasePage(
-      `No dashboard called ${dashboardName} found.`
-    )
+    return `No dashboard called ${dashboardName} found.`
   }
 
   let sources = {}
-  Object.entries(dashboard.sources).forEach(([source, command]) => {
-    sources[source] = JSON.parse(runCommand(`stream show ${command} --format json`))
-  })
-
   let variables = []
   Object.entries(dashboard.variables).forEach(([variable, details]) => {
-    let value = _.get(sources[details.source], details.path)
+    let normalizedSource = details.source.trim()
+    let source = sources[normalizedSource]
+
+    if (!source) {
+      source = runCommand(normalizedSource, true)
+      try {
+        source = JSON.parse(source)
+      } catch (e) { } // ignore
+
+      if (source.values) {
+        source.values = source.values.map(valueObject => {
+          let [index, time, value, ...tags] = valueObject
+          valueObject.index = index
+          valueObject.time = time
+          valueObject.value = value
+          valueObject.tags = tags
+          return valueObject
+        })
+      }
+    }
+
+    let value = details.path ? _.get(source, details.path) : source
     if (details.type === 'time') {
       value = formatTime(value, details.format || 'relative')
+    } if (details.type === 'preformatted') {
+      value = `<pre>${value}</pre>`
     }
     variables.push({
       name: variable,
@@ -219,17 +292,15 @@ function viewDashboardPage(ctx, dashboardName) {
     })
   })
 
-  return renderBasePage(
-    `<div style="font-size: 17px; padding: 20px; font-family: Arial, sans-serif;">
+  return `<div style="font-size: 17px; padding: 20px; font-family: Arial, sans-serif;">
       ${dashboard.template.map(section => {
-        if (section.type === 'table') return viewTable(section.data, variables)
-        else {
-          console.log('nope', section)
-          return JSON.stringify(section)
-        }
-      }).join('')}
+    if (section.type === 'table') return viewTable(section.data, variables)
+    else {
+      console.log('nope', section)
+      return JSON.stringify(section)
+    }
+  }).join('')}
     </div>`
-  )
 }
 
 function viewTable(data, variables) {
@@ -241,8 +312,8 @@ function viewTable(data, variables) {
 }
 
 function injectVariables(text, variables) {
-  variables.forEach(({name, value}) => {
-    text = text.replace(new RegExp('\\${'+name+'}', 'g'), value)
+  variables.forEach(({ name, value }) => {
+    text = text.replace(new RegExp('\\${' + name + '}', 'g'), value)
   })
   return text
 }
@@ -251,7 +322,7 @@ function editDashboardPage(ctx, dashboardName) {
   let dashboard = dashboardName ? (db.get('dashboards') || {})[dashboardName] : undefined
 
   return renderBasePage(
-    `<form style="font-size: 17px; padding: 20px;" action="/dashboard" method="POST">
+    `<form style="font-size: 17px; padding: 20px;" action="/dashboards" method="POST">
       <label style="line-height: 2em;">
         dashboard name
         <br>
@@ -280,13 +351,15 @@ server({ port, security: { csrf: false } }, [
     let recentsText = ''
     if (recents) {
       recentsText = Object.entries(recents)
-        .sort((a, b) => b[1] - a[1]).map(([key]) => {
-          return `- <a href="nb/${key} --help">${key}</a>`
+        .sort((a, b) => b[1] - a[1]).map(([key, weight]) => {
+          return `- (${weight}) <a href="nb/${key}">${key}</a>`
         })
         .join('<br />')
     }
 
-    return `<a href="nb/--help">nb</a><br />${recentsText}`
+    return renderBasePage(
+      `<a href="nb/--help">nb</a><br />${recentsText}<br /><br />${dashboardsList()}`
+    )
   }),
 
   get('/nb', ctx => renderCommandPage(ctx, '')),
@@ -301,19 +374,28 @@ server({ port, security: { csrf: false } }, [
       .send(runCommand(getCommand(ctx)))
   }),
 
-  get('/dashboard', ctx => listDashboardsPage(ctx)),
-  get('/dashboard/:dashboard', ctx => viewDashboardPage(ctx, ctx.params.dashboard)),
-  get('/dashboard/edit', ctx => editDashboardPage(ctx)),
-  get('/dashboard/edit/:dashboard', ctx => editDashboardPage(ctx, ctx.params.dashboard)),
-  post('/dashboard', ctx => {
-    // console.log(ctx.data, ctx.params, ctx.query)
+  get('/dashboards', ctx => renderBasePage(dashboardsList())),
+  get('/dashboards/add', ctx => editDashboardPage(ctx)),
+  get('/dashboards/:dashboard', ctx => renderBasePage(() => viewDashboardPage(ctx, ctx.params.dashboard))),
+  get('/dashboards/:dashboard/edit', ctx => editDashboardPage(ctx, ctx.params.dashboard)),
+  post('/dashboards', ctx => {
     let dashboards = db.get('dashboards') || {}
     db.put('dashboards', {
       ...dashboards,
       [ctx.data.name]: JSON.parse(ctx.data.config)
     })
-    return server.reply.redirect(`/dashboard/${ctx.data.name}`)
+    return server.reply.redirect(`/dashboards/${ctx.data.name}`)
   }),
+  get('/dashboards/:dashboard/delete', ctx => {
+    let dashboards = db.get('dashboards') || {}
+    delete dashboards[ctx.params.dashboard]
+    db.put('dashboards', dashboards)
+    return server.reply.redirect(`/dashboards`)
+  }),
+
+  get('*', (ctx) => {
+    return ''
+  })
 
 ],
   server.router.error(ctx => {
