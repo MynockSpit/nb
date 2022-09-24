@@ -45,7 +45,7 @@ function renderBasePage(contentsOrFn = '') {
   <head>
     <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, shrink-to-fit=yes">
     <style>
-      @media (prefers-color-scheme: dark) {
+      @media not all and (prefers-color-scheme: light) {
         body {
           background: black;
           color: white;
