@@ -350,7 +350,8 @@ server({ port, security: { csrf: false } }, [
     if (recents) {
       recentsText = Object.entries(recents)
         .sort((a, b) => b[1] - a[1]).map(([key, weight]) => {
-          return `- (${weight}) <a href="nb/${key}">${key}</a>`
+          let realKey = key.endsWith('--help') ? key : key + '  --help'
+          return `- (${weight}) <a href="nb/${realKey}">${realKey}</a>`
         })
         .join('<br />')
     }
