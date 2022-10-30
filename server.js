@@ -106,7 +106,7 @@ function commandForm(prefix, defaultValue) {
       method: 'POST',
       headers: { "record-command": true }
     })).text()
-    outputElement.innerHTML = formatCommandOutput({}, command, text) + '\n\n' + outputElement.innerHTML
+    outputElement.innerHTML = formatCommandOutput({}, command, sanitizeHtml(text)) + '\n\n' + outputElement.innerHTML
   }
 
   // this hack makes the cursor move to the end of the text on focus
