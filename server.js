@@ -189,10 +189,36 @@ function formatCommandOutput(ctx, commandString, input) {
   return `> nb.js ${sanitizeHtml(commandString)}    ${makeLink(commandString, '(repeat)', false)}\n\n` + lines.join("\n")
 }
 
-function runCommand(commandString, shouldThrow = false) {
-  let command = `${nb} ${commandString.split(/\s/)
+function sanitizeCommand(command) {
+  let groupStarted = false
+  return command.split(/\s/)
+    .reduce((list, each) => {
+      // should start
+      if (!groupStarted) {
+        // start group
+        if ((each.startsWith('"') || each.startsWith("'"))) {
+          each = each.replace(/^["']/, "")
+          groupStarted = true
+        } 
+        
+        list.push(each)
+      } else {
+        if (each.endsWith('"') || each.endsWith("'")) {
+          each = each.replace(/["']$/, "")
+          groupStarted = false
+        }
+
+        list[list.length - 1] += " " + each
+      }
+      return list
+    }, [])
     // best effort safety -- wrap all args in single quotes
-    .map(part => `'${part.replace(/'/g, "'\\''")}'`).join(' ')}`
+    .map(part => `'${part.replace(/'/g, "'\\''")}'`)
+    .join(' ')
+}
+
+function runCommand(commandString, shouldThrow = false) {
+  let command = `${nb} ${sanitizeCommand(commandString)}`
   console.log(`\n---\n> received: ${commandString}\n> running: ${command}\n`)
   let output
   try {
@@ -221,7 +247,7 @@ function getCommand(ctx) {
     rootReferer = new URL(referer).pathname === '/'
   }
 
-  console.log({ afterTheFactCommand, referer, rootReferer})
+  console.log({ afterTheFactCommand, referer, rootReferer })
 
   if (afterTheFactCommand || !referer || rootReferer) {
     let routes = db.get('recent') || {}
